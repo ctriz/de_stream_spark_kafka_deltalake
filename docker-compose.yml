@@ -1,0 +1,125 @@
+# docker-compose.yml
+version: "3.7"
+
+volumes:
+  delta_data:
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.1
+    container_name: zookeeper
+    hostname: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.1
+    container_name: kafka
+    hostname: kafka
+    ports:
+      - "9092:9092"
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: [ "CMD-SHELL", "kafka-topics --bootstrap-server kafka:29092 --list" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8080:8080"
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+
+  spark-master:
+    image: bitnami/spark:3.4.1
+    container_name: spark-master
+    hostname: spark-master
+    volumes:
+      - ./app:/app
+      - delta_data:/tmp/delta
+    ports:
+      - "8081:8080"
+      - "7077:7077"
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_IP=spark-master
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  spark-worker:
+    image: bitnami/spark:3.4.1
+    container_name: spark-worker
+    hostname: spark-worker
+    depends_on:
+      - spark-master
+    volumes:
+      - ./app:/app
+      - delta_data:/tmp/delta
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_IP=spark-worker
+  
+  producer:
+    image: bitnami/spark:3.4.1
+    container_name: producer
+    hostname: producer
+    volumes:
+      - ./app:/app
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: >
+      /bin/bash -c "pip install kafka-python && python /app/kafka_producer.py"
+
+  topic-creator:
+    image: bitnami/spark:3.4.1
+    container_name: topic-creator
+    hostname: topic-creator
+    volumes:
+      - ./app:/app
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: >
+      /bin/bash -c "pip install kafka-python && python /app/create_topic.py"
+
+  spark-submit:
+    image: bitnami/spark:3.4.1
+    container_name: spark-submit
+    volumes:
+      - ./app:/app
+      - delta_data:/tmp/delta
+    depends_on:
+      spark-master:
+        condition: service_started
+      producer:
+        condition: service_started
+      topic-creator:
+        condition: service_started
+    command: >
+      /bin/bash -c "pip install kafka-python delta-spark && /opt/bitnami/spark/bin/spark-submit --master spark://spark-master:7077 --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1,io.delta:delta-core_2.12:2.4.0 /app/kafka_consumer.py"
