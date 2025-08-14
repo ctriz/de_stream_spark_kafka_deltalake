@@ -1,10 +1,10 @@
-This project demonstrates a real-time data pipeline using Docker Compose to orchestrate several services: a Kafka message broker, a Spark cluster, and a Python application that streams data from Kafka into a Delta Lake table.
+This project demonstrates a real-time data pipeline using Docker to orchestrate several services: a Kafka message broker, a Spark cluster, and a Python application that streams data from Kafka into a Delta Lake table.
 
 The pipeline consists of three main components:
 
-  A Kafka Producer that generates sample JSON messages and sends them to a Kafka topic.
-  A Spark Streaming job (the consumer) that reads messages from the Kafka topic.
-  A Delta Lake table where the Spark job continuously appends the streaming data.
+  1.A Kafka Producer that generates sample JSON messages and sends them to a Kafka topic.
+  2.A Spark Streaming job (the consumer) that reads messages from the Kafka topic.
+  3.A Delta Lake table where the Spark job continuously appends the streaming data.
 
 The setup is managed by docker-compose.yml, which handles service dependencies and network configuration.
 
